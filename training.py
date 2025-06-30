@@ -29,7 +29,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device: {}".format(device))
 
 # Load the dataset
-df = pd.read_csv('input\Suicide_Detection.csv')
+df = pd.read_csv('input/Suicide_Detection.csv')
 print("Dataset shape: {}".format(df.shape))
 print(df.head())
 
