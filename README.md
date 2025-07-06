@@ -1,53 +1,25 @@
-# 🧠 Detección de Suicidio - AI Model
+# 🧠 Suicide Detection API
 
-Una aplicación web basada en inteligencia artificial para la detección de contenido con riesgo suicida en textos, desarrollada con BERT y Flask.
+API basada en inteligencia artificial para detectar contenido con riesgo suicida usando BERT.
 
 ## 🚀 Despliegue en EasyPanel
 
-### Prerrequisitos
-- Cuenta en EasyPanel
-- Acceso a una VPS
-- Git instalado
+### Configuración rápida:
+1. **Tipo:** Docker
+2. **Repositorio:** Este repositorio de GitHub
+3. **Puerto:** 8000
+4. **Variables de entorno:**
+   ```
+   ENVIRONMENT=production
+   PYTHONUNBUFFERED=1
+   TOKENIZERS_PARALLELISM=false
+   ```
+5. **Recursos mínimos:** 2 CPU cores, 4GB RAM
 
-### Pasos para el despliegue:
-
-#### 1. Preparar el repositorio
-```bash
-# Clonar o subir tu proyecto a GitHub/GitLab
-git init
-git add .
-git commit -m "Initial commit - Suicide Detection App"
-git remote add origin <tu-repositorio>
-git push -u origin main
-```
-
-#### 2. Configurar en EasyPanel
-
-1. **Accede a tu panel de EasyPanel**
-2. **Crea una nueva aplicación:**
-   - Tipo: **Docker**
-   - Fuente: **GitHub/GitLab**
-   - Repositorio: Tu repositorio
-   - Branch: `main`
-
-3. **Configuración de la aplicación:**
-   - **Puerto interno:** `8000`
-   - **Puerto externo:** `80` o `443` (para HTTPS)
-   - **Variables de entorno:**
-     ```
-     ENVIRONMENT=production
-     PYTHONUNBUFFERED=1
-     TOKENIZERS_PARALLELISM=false
-     ```
-
-4. **Recursos recomendados:**
-   - **CPU:** 2 cores mínimo
-   - **RAM:** 4GB mínimo (8GB recomendado)
-   - **Almacenamiento:** 10GB mínimo
-
-#### 3. Configuración de dominio
-- Asigna un dominio personalizado en EasyPanel
-- Habilita SSL automático
+### Endpoints principales:
+- `GET /health` - Estado del servicio
+- `POST /predict` - Predicción de riesgo suicida
+- `GET /docs` - Documentación interactiva
 
 ## 🐳 Despliegue manual con Docker
 

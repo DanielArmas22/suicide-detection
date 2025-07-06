@@ -30,11 +30,7 @@ RUN python -c "import nltk; nltk.download('stopwords'); nltk.download('vader_lex
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p models logs
-
-# Copy and make start script executable
-COPY start.sh .
-RUN chmod +x start.sh
+RUN mkdir -p logs
 
 # Expose port
 EXPOSE 8000
@@ -43,5 +39,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Start command
-CMD ["python", "fastapi_app.py"]
+# Start command - Use uvicorn directly for better production performance
+CMD ["uvicorn", "fastapi_app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

@@ -1,0 +1,19 @@
+name: suicide-detection
+type: docker
+build:
+  dockerfile: Dockerfile
+  context: .
+port: 8000
+environment:
+  ENVIRONMENT: production
+  PYTHONUNBUFFERED: "1"
+  TOKENIZERS_PARALLELISM: "false"
+healthcheck:
+  path: /health
+  interval: 30
+  timeout: 10
+  retries: 3
+resources:
+  cpu: 2000  # 2 CPU cores
+  memory: 4096  # 4GB RAM
+  storage: 10240  # 10GB storage
