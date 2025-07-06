@@ -5,6 +5,7 @@ API basada en inteligencia artificial para detectar contenido con riesgo suicida
 ## 🚀 Despliegue en EasyPanel
 
 ### Configuración rápida:
+
 1. **Tipo:** Docker
 2. **Repositorio:** Este repositorio de GitHub
 3. **Puerto:** 8000
@@ -17,6 +18,7 @@ API basada en inteligencia artificial para detectar contenido con riesgo suicida
 5. **Recursos mínimos:** 2 CPU cores, 4GB RAM
 
 ### Endpoints principales:
+
 - `GET /health` - Estado del servicio
 - `POST /predict` - Predicción de riesgo suicida
 - `GET /docs` - Documentación interactiva
@@ -24,6 +26,7 @@ API basada en inteligencia artificial para detectar contenido con riesgo suicida
 ## 🐳 Despliegue manual con Docker
 
 ### Opción 1: Usando Docker Compose (Recomendado)
+
 ```bash
 # Clonar el repositorio
 git clone <tu-repositorio>
@@ -34,6 +37,7 @@ docker-compose up -d --build
 ```
 
 ### Opción 2: Docker directo
+
 ```bash
 # Construir la imagen
 docker build -t suicide-detection .
@@ -79,13 +83,16 @@ suicide-detection/
 ## 🔧 Configuración avanzada
 
 ### Variables de entorno
+
 - `ENVIRONMENT`: `development` o `production`
 - `PORT`: Puerto de la aplicación (default: 8000)
 - `PYTHONUNBUFFERED`: Para logs en tiempo real
 - `TOKENIZERS_PARALLELISM`: Desactiva paralelismo de tokenizers
 
 ### Monitoreo
+
 La aplicación incluye:
+
 - Health checks automáticos
 - Logging detallado
 - Métricas de predicción
@@ -113,10 +120,12 @@ python app.py
 ## 📝 Logs y debugging
 
 Los logs se almacenan en:
+
 - Contenedor: `/app/logs/`
 - Local: `./logs/`
 
 Para ver logs en tiempo real:
+
 ```bash
 docker logs -f suicide-detection
 ```
@@ -130,6 +139,7 @@ docker logs -f suicide-detection
 ## 📞 Soporte
 
 Para problemas o dudas:
+
 1. Revisa los logs de la aplicación
 2. Verifica el health check endpoint
 3. Consulta la documentación de EasyPanel

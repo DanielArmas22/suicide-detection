@@ -1,4 +1,3 @@
-
 services:
   suicide-detection:
     build: .
