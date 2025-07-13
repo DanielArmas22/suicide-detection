@@ -3,7 +3,7 @@ import json
 
 def test_api():
     """Test the FastAPI suicide detection API"""
-    base_url = "https://ing-software-dani-suicidalback.2ds6cg.easypanel.host"
+    base_url = "http://localhost:8000"
     
     print("🧪 Testing Suicide Detection API")
     print("=" * 50)
@@ -43,7 +43,8 @@ def test_api():
         print(f"Input: {test_data['text']}")
         print(f"Prediction: {result['prediction']}")
         print(f"Confidence: {result['confidence']:.2%}")
-        print(f"Suicide probability: {result['suicide_probability']:.2%}")
+        print(f"Suicidal probability: {result['suicidal_probability']:.2%}")
+        print(f"Risk level: {result['risk_level']}")
     except Exception as e:
         print(f"Error: {e}")
     
@@ -64,7 +65,8 @@ def test_api():
         print(f"Input: {test_data['text']}")
         print(f"Prediction: {result['prediction']}")
         print(f"Confidence: {result['confidence']:.2%}")
-        print(f"Suicide probability: {result['suicide_probability']:.2%}")
+        print(f"Suicidal probability: {result['suicidal_probability']:.2%}")
+        print(f"Risk level: {result['risk_level']}")
     except Exception as e:
         print(f"Error: {e}")
     
@@ -82,6 +84,30 @@ def test_api():
         )
         print(f"Status: {response.status_code}")
         print(f"Response: {response.json()}")
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    # Test 6: Detailed prediction
+    print("\n6. Testing detailed prediction endpoint...")
+    try:
+        test_data = {
+            "text": "I feel so hopeless and tired. I don't want to be alive anymore. Nobody would miss me."
+        }
+        response = requests.post(
+            f"{base_url}/predict/detailed",
+            json=test_data,
+            headers={"Content-Type": "application/json"},
+            timeout=60
+        )
+        print(f"Status: {response.status_code}")
+        result = response.json()
+        print(f"Input: {test_data['text']}")
+        print(f"Prediction: {result['prediction']}")
+        print(f"Confidence: {result['confidence']:.2%}")
+        print(f"Suicidal probability: {result['suicidal_probability']:.2%}")
+        print(f"Risk level: {result['risk_level']}")
+        print(f"Indicators found: {result['analysis']['indicators_found']}")
+        print(f"First person pronouns: {result['analysis']['first_person_count']}")
     except Exception as e:
         print(f"Error: {e}")
     

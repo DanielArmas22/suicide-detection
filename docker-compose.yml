@@ -2,7 +2,7 @@ services:
   suicide-detection:
     build: .
     ports:
-      - "8000:8000"
+      - "8080:8000"
     environment:
       - ENVIRONMENT=production
       - PYTHONUNBUFFERED=1

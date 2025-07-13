@@ -61,9 +61,19 @@ class TextRequest(BaseModel):
 class PredictionResponse(BaseModel):
     prediction: str
     confidence: float
-    suicide_probability: float
-    non_suicide_probability: float
+    suicidal_probability: float
+    non_suicidal_probability: float
     processed_text: str
+    risk_level: str
+
+class DetailedPredictionResponse(BaseModel):
+    prediction: str
+    confidence: float
+    suicidal_probability: float
+    non_suicidal_probability: float
+    processed_text: str
+    risk_level: str
+    analysis: dict
     
 class HealthResponse(BaseModel):
     status: str
@@ -142,7 +152,7 @@ def load_model() -> bool:
         return False
 
 def predict_text(text: str) -> dict:
-    """Make prediction on input text"""
+    """Make prediction on input text using the same method as training"""
     if model is None or tokenizer is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
     
@@ -153,39 +163,97 @@ def predict_text(text: str) -> dict:
         if not processed_text:
             raise HTTPException(status_code=400, detail="Empty text after preprocessing")
         
-        # Tokenize with max_length matching training (128)
-        inputs = tokenizer(
+        # Tokenize using the same method as training
+        encoding = tokenizer.encode_plus(
             processed_text,
-            return_tensors="pt",
+            add_special_tokens=True,
+            max_length=128,
+            return_token_type_ids=False,
+            padding='max_length',
             truncation=True,
-            padding=True,
-            max_length=128  # Match training max_length
-        ).to(device)
+            return_attention_mask=True,
+            return_tensors='pt'
+        )
+        
+        # Move to device
+        input_ids = encoding['input_ids'].to(device)
+        attention_mask = encoding['attention_mask'].to(device)
         
         # Make prediction
+        model.eval()
         with torch.no_grad():
-            outputs = model(**inputs)
-            predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask
+            )
             
-        # Get probabilities
-        suicide_prob = predictions[0][1].item()
-        non_suicide_prob = predictions[0][0].item()
+        # Get prediction probabilities using softmax
+        probs = torch.nn.functional.softmax(outputs.logits, dim=1)
         
-        # Determine prediction
-        prediction = "suicide" if suicide_prob > 0.5 else "non-suicide"
-        confidence = max(suicide_prob, non_suicide_prob)
+        # Get probabilities for each class
+        non_suicidal_prob = probs[0][0].item()  # Class 0: non-suicidal
+        suicidal_prob = probs[0][1].item()      # Class 1: suicidal
+        
+        # Get class with highest probability
+        _, prediction_idx = torch.max(probs, dim=1)
+        prediction = "suicidal" if prediction_idx.item() == 1 else "non-suicidal"
+        confidence = probs[0][prediction_idx.item()].item()
+        
+        # Determine risk level based on probability
+        risk_level = "low"
+        if suicidal_prob > 0.8:
+            risk_level = "very high"
+        elif suicidal_prob > 0.6:
+            risk_level = "high"
+        elif suicidal_prob > 0.5:
+            risk_level = "medium"
+        elif suicidal_prob > 0.3:
+            risk_level = "low"
         
         return {
             "prediction": prediction,
             "confidence": round(confidence, 4),
-            "suicide_probability": round(suicide_prob, 4),
-            "non_suicide_probability": round(non_suicide_prob, 4),
-            "processed_text": processed_text
+            "suicidal_probability": round(suicidal_prob, 4),
+            "non_suicidal_probability": round(non_suicidal_prob, 4),
+            "processed_text": processed_text,
+            "risk_level": risk_level
         }
         
     except Exception as e:
         logger.error(f"Error making prediction: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+
+# Suicide risk indicators from the reference script
+SUICIDE_INDICATORS = [
+    'kill', 'die', 'suicide', 'end', 'pain', 'life', 'anymore', 'want', 'hope', 
+    'help', 'death', 'dead', 'hate', 'tired', 'pills', 'hurt', 'alone', 'sad', 
+    'depression', 'anxiety', 'lost', 'cut', 'empty', 'worthless'
+]
+
+FIRST_PERSON_PRONOUNS = ['i', 'me', 'my', 'mine', 'myself']
+
+def analyze_text_indicators(text: str) -> dict:
+    """Analyze text for suicide risk indicators (similar to reference script)"""
+    processed_text = preprocess_text(text)
+    words = processed_text.lower().split()
+    
+    # Check for suicide indicators
+    indicators_present = [word for word in SUICIDE_INDICATORS if word in words]
+    
+    # Count first-person pronouns
+    first_person_count = sum(1 for word in words if word in FIRST_PERSON_PRONOUNS)
+    
+    # Text statistics
+    text_length = len(text)
+    word_count = len(words)
+    
+    return {
+        "indicators_found": indicators_present,
+        "indicator_count": len(indicators_present),
+        "first_person_count": first_person_count,
+        "text_length": text_length,
+        "word_count": word_count
+    }
 
 # API Routes
 
@@ -234,7 +302,7 @@ async def predict_suicide_risk(request: TextRequest):
         result = predict_text(request.text.strip())
         
         # Log prediction (without sensitive data)
-        logger.info(f"Prediction made: {result['prediction']} (confidence: {result['confidence']})")
+        logger.info(f"Prediction made: {result['prediction']} (confidence: {result['confidence']}, risk_level: {result['risk_level']})")
         
         return PredictionResponse(**result)
         
@@ -242,6 +310,43 @@ async def predict_suicide_risk(request: TextRequest):
         raise
     except Exception as e:
         logger.error(f"Error in prediction endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/predict/detailed", response_model=DetailedPredictionResponse, tags=["Prediction"])
+async def predict_suicide_risk_detailed(request: TextRequest):
+    """
+    Predict suicide risk with detailed analysis
+    
+    - **text**: The text to analyze for suicide risk indicators
+    
+    Returns prediction with confidence scores, probabilities, and detailed text analysis
+    """
+    try:
+        # Check if model is loaded
+        if model is None or tokenizer is None:
+            raise HTTPException(
+                status_code=503, 
+                detail="Model not available. Please try again later."
+            )
+        
+        if not request.text or not request.text.strip():
+            raise HTTPException(status_code=400, detail="Empty text provided")
+        
+        # Make prediction
+        result = predict_text(request.text.strip())
+        
+        # Get detailed analysis
+        analysis = analyze_text_indicators(request.text.strip())
+        
+        # Log prediction (without sensitive data)
+        logger.info(f"Detailed prediction made: {result['prediction']} (confidence: {result['confidence']}, risk_level: {result['risk_level']})")
+        
+        return DetailedPredictionResponse(**result, analysis=analysis)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in detailed prediction endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/api/info", tags=["General"])
@@ -254,12 +359,15 @@ async def api_info():
         "model_info": {
             "architecture": "BERT-base-uncased",
             "task": "binary classification",
-            "classes": ["non-suicide", "suicide"]
+            "classes": ["non-suicidal", "suicidal"],
+            "max_length": 128,
+            "risk_levels": ["low", "medium", "high"]
         },
         "endpoints": {
             "/": "Root endpoint",
             "/health": "Health check",
             "/predict": "Text prediction (POST)",
+            "/predict/detailed": "Text prediction with detailed analysis (POST)",
             "/api/info": "API information",
             "/docs": "Interactive API documentation",
             "/redoc": "Alternative API documentation"
