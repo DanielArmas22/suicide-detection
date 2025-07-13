@@ -9,16 +9,38 @@ import logging
 from datetime import datetime
 from typing import Optional
 import uvicorn
+from contextlib import asynccontextmanager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
+# Global variables for model and tokenizer
+model = None
+tokenizer = None
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Starting Suicide Detection API...")
+    
+    if load_model():
+        logger.info("Model loaded successfully!")
+    else:
+        logger.error("Failed to load model!")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down Suicide Detection API...")
+
+# Initialize FastAPI app with lifespan
 app = FastAPI(
     title="Suicide Detection API",
     description="AI model for detecting suicide risk in text using BERT",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Add CORS middleware to allow frontend connections
@@ -29,9 +51,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Global variables for model and tokenizer
-model = None
 tokenizer = None
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -113,11 +132,14 @@ def load_model() -> bool:
                 model.eval()
                 logger.warning("Using pre-trained model - predictions may not be accurate!")
             
+        return True
+        
     except Exception as e:
         logger.error(f"Error loading model: {str(e)}")
+        # Set model to None to prevent crashes
+        model = None
+        tokenizer = None
         return False
-    
-    return True
 
 def predict_text(text: str) -> dict:
     """Make prediction on input text"""
@@ -198,6 +220,13 @@ async def predict_suicide_risk(request: TextRequest):
     Returns prediction with confidence scores and probabilities
     """
     try:
+        # Check if model is loaded
+        if model is None or tokenizer is None:
+            raise HTTPException(
+                status_code=503, 
+                detail="Model not available. Please try again later."
+            )
+        
         if not request.text or not request.text.strip():
             raise HTTPException(status_code=400, detail="Empty text provided")
         
@@ -242,16 +271,6 @@ async def api_info():
             }
         }
     }
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the model when the app starts"""
-    logger.info("Starting Suicide Detection API...")
-    
-    if load_model():
-        logger.info("Model loaded successfully!")
-    else:
-        logger.error("Failed to load model!")
 
 # Error handlers
 @app.exception_handler(HTTPException)

@@ -7,7 +7,8 @@ services:
       - ENVIRONMENT=production
       - PYTHONUNBUFFERED=1
       - TOKENIZERS_PARALLELISM=false
-      - WORKERS=1
+      - TRANSFORMERS_OFFLINE=0
+      - HF_HOME=/app/.cache/huggingface
     volumes:
       - ./logs:/app/logs
       - ./output:/app/output
@@ -17,10 +18,14 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 120s
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 6G
+          cpus: "2"
         reservations:
-          memory: 2G
+          memory: 3G
+          cpus: "1"
+    mem_limit: 6g
+    mem_reservation: 3g

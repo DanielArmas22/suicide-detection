@@ -3,7 +3,7 @@ import json
 
 def test_api():
     """Test the FastAPI suicide detection API"""
-    base_url = "http://localhost:8000"
+    base_url = "https://ing-software-dani-suicidalback.2ds6cg.easypanel.host"
     
     print("🧪 Testing Suicide Detection API")
     print("=" * 50)
@@ -11,7 +11,7 @@ def test_api():
     # Test 1: Health check
     print("\n1. Testing health endpoint...")
     try:
-        response = requests.get(f"{base_url}/health")
+        response = requests.get(f"{base_url}/health", timeout=30)
         print(f"Status: {response.status_code}")
         print(f"Response: {json.dumps(response.json(), indent=2)}")
     except Exception as e:
@@ -20,7 +20,7 @@ def test_api():
     # Test 2: API Info
     print("\n2. Testing API info endpoint...")
     try:
-        response = requests.get(f"{base_url}/api/info")
+        response = requests.get(f"{base_url}/api/info", timeout=30)
         print(f"Status: {response.status_code}")
         print(f"API Info: {response.json()['name']}")
     except Exception as e:
@@ -35,7 +35,8 @@ def test_api():
         response = requests.post(
             f"{base_url}/predict",
             json=test_data,
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
+            timeout=60
         )
         print(f"Status: {response.status_code}")
         result = response.json()
@@ -55,7 +56,8 @@ def test_api():
         response = requests.post(
             f"{base_url}/predict",
             json=test_data,
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
+            timeout=60
         )
         print(f"Status: {response.status_code}")
         result = response.json()
@@ -75,7 +77,8 @@ def test_api():
         response = requests.post(
             f"{base_url}/predict",
             json=test_data,
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
+            timeout=30
         )
         print(f"Status: {response.status_code}")
         print(f"Response: {response.json()}")
@@ -84,8 +87,8 @@ def test_api():
     
     print("\n" + "=" * 50)
     print("✅ API testing completed!")
-    print("\n📖 Documentation available at: http://localhost:8000/docs")
-    print("📖 Alternative docs at: http://localhost:8000/redoc")
+    print(f"\n📖 Documentation available at: {base_url}/docs")
+    print(f"📖 Alternative docs at: {base_url}/redoc")
 
 if __name__ == "__main__":
     test_api()
