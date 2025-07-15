@@ -7,13 +7,17 @@ import re
 import os
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 import uvicorn
 from contextlib import asynccontextmanager
+from googletrans import Translator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Initialize translator
+translator = Translator()
 
 # Global variables for model and tokenizer
 model = None
@@ -51,8 +55,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-tokenizer = None
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pydantic models for request/response
 class TextRequest(BaseModel):
@@ -65,6 +67,8 @@ class PredictionResponse(BaseModel):
     non_suicidal_probability: float
     processed_text: str
     risk_level: str
+    original_text: str
+    translated_text: str
 
 class DetailedPredictionResponse(BaseModel):
     prediction: str
@@ -74,6 +78,8 @@ class DetailedPredictionResponse(BaseModel):
     processed_text: str
     risk_level: str
     analysis: dict
+    original_text: str
+    translated_text: str
     
 class HealthResponse(BaseModel):
     status: str
@@ -84,6 +90,35 @@ class HealthResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
+
+class UserMessage(BaseModel):
+    id: str
+    user_id: str
+    user_name: str
+    content: str
+    timestamp: datetime
+    type: str  # "post", "diary", "comment"
+    category: Optional[str] = None
+
+class UserMessagesResponse(BaseModel):
+    messages: List[UserMessage]
+    total: int
+    user_name: str
+
+class PredictMessageRequest(BaseModel):
+    message_id: str
+    text: str
+
+class PredictMessageResponse(BaseModel):
+    message_id: str
+    original_text: str
+    translated_text: str
+    prediction: str
+    confidence: float
+    suicidal_probability: float
+    non_suicidal_probability: float
+    risk_level: str
+    analysis: dict
 
 # Text preprocessing function (same as in training)
 def preprocess_text(text: str) -> str:
@@ -151,14 +186,17 @@ def load_model() -> bool:
         tokenizer = None
         return False
 
-def predict_text(text: str) -> dict:
-    """Make prediction on input text using the same method as training"""
+def predict_text_with_translation(text: str) -> dict:
+    """Make prediction on input text with translation support"""
     if model is None or tokenizer is None:
         raise HTTPException(status_code=500, detail="Model not loaded")
     
     try:
-        # Preprocess text
-        processed_text = preprocess_text(text)
+        # First, translate to English if needed
+        translated_text, was_translated = translate_to_english(text)
+        
+        # Preprocess the translated text
+        processed_text = preprocess_text(translated_text)
         
         if not processed_text:
             raise HTTPException(status_code=400, detail="Empty text after preprocessing")
@@ -202,8 +240,81 @@ def predict_text(text: str) -> dict:
         # Determine risk level based on probability
         risk_level = "low"
         if suicidal_prob > 0.8:
-            risk_level = "very high"
-        elif suicidal_prob > 0.6:
+            risk_level = "high"
+        elif suicidal_prob > 0.5:
+            risk_level = "medium"
+        
+        return {
+            "prediction": prediction,
+            "confidence": round(confidence, 4),
+            "suicidal_probability": round(suicidal_prob, 4),
+            "non_suicidal_probability": round(non_suicidal_prob, 4),
+            "processed_text": processed_text,
+            "risk_level": risk_level,
+            "original_text": text,
+            "translated_text": translated_text,
+            "was_translated": was_translated
+        }
+        
+    except Exception as e:
+        logger.error(f"Error making prediction: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+
+def predict_text(text: str) -> dict:
+    """Make prediction on input text using the same method as training"""
+    if model is None or tokenizer is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+    
+    try:
+        # Translate Spanish text to English first
+        english_text, was_translated = translate_to_english(text)
+        logger.info(f"Processing text: '{english_text}'")
+        
+        # Preprocess text
+        processed_text = preprocess_text(english_text)
+        
+        if not processed_text:
+            raise HTTPException(status_code=400, detail="Empty text after preprocessing")
+        
+        # Tokenize using the same method as training
+        encoding = tokenizer.encode_plus(
+            processed_text,
+            add_special_tokens=True,
+            max_length=128,
+            return_token_type_ids=False,
+            padding='max_length',
+            truncation=True,
+            return_attention_mask=True,
+            return_tensors='pt'
+        )
+        
+        # Move to device
+        input_ids = encoding['input_ids'].to(device)
+        attention_mask = encoding['attention_mask'].to(device)
+        
+        # Make prediction
+        model.eval()
+        with torch.no_grad():
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask
+            )
+            
+        # Get prediction probabilities using softmax
+        probs = torch.nn.functional.softmax(outputs.logits, dim=1)
+        
+        # Get probabilities for each class
+        non_suicidal_prob = probs[0][0].item()  # Class 0: non-suicidal
+        suicidal_prob = probs[0][1].item()      # Class 1: suicidal
+        
+        # Get class with highest probability
+        _, prediction_idx = torch.max(probs, dim=1)
+        prediction = "suicidal" if prediction_idx.item() == 1 else "non-suicidal"
+        confidence = probs[0][prediction_idx.item()].item()
+        
+        # Determine risk level based on probability
+        risk_level = "low"
+        if suicidal_prob > 0.8:
             risk_level = "high"
         elif suicidal_prob > 0.5:
             risk_level = "medium"
@@ -216,7 +327,9 @@ def predict_text(text: str) -> dict:
             "suicidal_probability": round(suicidal_prob, 4),
             "non_suicidal_probability": round(non_suicidal_prob, 4),
             "processed_text": processed_text,
-            "risk_level": risk_level
+            "risk_level": risk_level,
+            "original_text": text,
+            "translated_text": english_text
         }
         
     except Exception as e:
@@ -254,6 +367,104 @@ def analyze_text_indicators(text: str) -> dict:
         "text_length": text_length,
         "word_count": word_count
     }
+
+def translate_to_english(text: str) -> tuple[str, bool]:
+    """Translate Spanish text to English"""
+    try:
+        # Detect language
+        detection = translator.detect(text)
+        
+        if detection.lang == 'en':
+            logger.info("Text is already in English")
+            return text, False
+        elif detection.lang == 'es':
+            logger.info("Translating Spanish text to English")
+            translated = translator.translate(text, src='es', dest='en')
+            print(translated)
+            return translated.text, True
+        else:
+            logger.info(f"Detected language: {detection.lang}, translating to English")
+            translated = translator.translate(text, dest='en')
+            return translated.text, True
+            
+    except Exception as e:
+        logger.warning(f"Translation failed: {str(e)}, using original text")
+        return text, False
+
+# Mock data for demonstration
+MOCK_USERS_MESSAGES = {
+    "user1": {
+        "name": "Ana García",
+        "messages": [
+            {
+                "id": "msg1",
+                "user_id": "user1",
+                "content": "Me siento muy triste últimamente. No sé qué hacer con mi vida.",
+                "timestamp": datetime(2025, 1, 15, 14, 30),
+                "type": "diary",
+                "category": "personal"
+            },
+            {
+                "id": "msg2",
+                "user_id": "user1",
+                "content": "A veces pienso que sería mejor no estar aquí. Todo es tan difícil.",
+                "timestamp": datetime(2025, 1, 16, 20, 15),
+                "type": "diary",
+                "category": "personal"
+            },
+            {
+                "id": "msg3",
+                "user_id": "user1",
+                "content": "Hoy fue un mejor día. Hablé con mi familia y me siento un poco mejor.",
+                "timestamp": datetime(2025, 1, 17, 10, 45),
+                "type": "post",
+                "category": "general"
+            }
+        ]
+    },
+    "user2": {
+        "name": "Carlos Mendoza",
+        "messages": [
+            {
+                "id": "msg4",
+                "user_id": "user2",
+                "content": "La universidad es muy estresante. No puedo manejar toda la presión.",
+                "timestamp": datetime(2025, 1, 15, 16, 20),
+                "type": "post",
+                "category": "academic"
+            },
+            {
+                "id": "msg5",
+                "user_id": "user2",
+                "content": "Me duele todo el cuerpo y no puedo dormir. Creo que necesito ayuda profesional.",
+                "timestamp": datetime(2025, 1, 16, 23, 10),
+                "type": "diary",
+                "category": "health"
+            }
+        ]
+    },
+    "user3": {
+        "name": "María Rodriguez",
+        "messages": [
+            {
+                "id": "msg6",
+                "user_id": "user3",
+                "content": "Estoy muy feliz con mis resultados académicos este semestre.",
+                "timestamp": datetime(2025, 1, 14, 12, 30),
+                "type": "post",
+                "category": "academic"
+            },
+            {
+                "id": "msg7",
+                "user_id": "user3",
+                "content": "Algunas veces me siento abrumada, pero tengo buenos amigos que me apoyan.",
+                "timestamp": datetime(2025, 1, 16, 14, 45),
+                "type": "diary",
+                "category": "social"
+            }
+        ]
+    }
+}
 
 # API Routes
 
@@ -321,8 +532,10 @@ async def predict_suicide_risk_detailed(request: TextRequest):
     
     Returns prediction with confidence scores, probabilities, and detailed text analysis
     """
+    
     try:
         # Check if model is loaded
+        print("prueba endpoint")
         if model is None or tokenizer is None:
             raise HTTPException(
                 status_code=503, 
@@ -368,6 +581,9 @@ async def api_info():
             "/health": "Health check",
             "/predict": "Text prediction (POST)",
             "/predict/detailed": "Text prediction with detailed analysis (POST)",
+            "/predict/message": "Message prediction with translation (POST)",
+            "/users/messages": "Get all user messages (GET)",
+            "/users/{user_id}/messages": "Get messages for specific user (GET)",
             "/api/info": "API information",
             "/docs": "Interactive API documentation",
             "/redoc": "Alternative API documentation"
@@ -380,22 +596,149 @@ async def api_info():
         }
     }
 
+@app.get("/users/messages", tags=["Users"])
+async def get_all_users_messages():
+    """Get all users and their messages for admin dashboard"""
+    try:
+        all_messages = []
+        
+        for user_id, user_data in MOCK_USERS_MESSAGES.items():
+            for msg_data in user_data["messages"]:
+                message = UserMessage(
+                    id=msg_data["id"],
+                    user_id=msg_data["user_id"],
+                    user_name=user_data["name"],
+                    content=msg_data["content"],
+                    timestamp=msg_data["timestamp"],
+                    type=msg_data["type"],
+                    category=msg_data.get("category")
+                )
+                all_messages.append(message)
+        
+        # Sort by timestamp descending
+        all_messages.sort(key=lambda x: x.timestamp, reverse=True)
+        
+        logger.info(f"Retrieved {len(all_messages)} messages from {len(MOCK_USERS_MESSAGES)} users")
+        
+        return {
+            "messages": all_messages,
+            "total": len(all_messages),
+            "users_count": len(MOCK_USERS_MESSAGES)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error retrieving messages: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving messages")
+
+@app.get("/users/{user_id}/messages", response_model=UserMessagesResponse, tags=["Users"])
+async def get_user_messages(user_id: str):
+    """Get messages for a specific user"""
+    try:
+        if user_id not in MOCK_USERS_MESSAGES:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user_data = MOCK_USERS_MESSAGES[user_id]
+        messages = []
+        
+        for msg_data in user_data["messages"]:
+            message = UserMessage(
+                id=msg_data["id"],
+                user_id=msg_data["user_id"],
+                user_name=user_data["name"],
+                content=msg_data["content"],
+                timestamp=msg_data["timestamp"],
+                type=msg_data["type"],
+                category=msg_data.get("category")
+            )
+            messages.append(message)
+        
+        # Sort by timestamp descending
+        messages.sort(key=lambda x: x.timestamp, reverse=True)
+        
+        return UserMessagesResponse(
+            messages=messages,
+            total=len(messages),
+            user_name=user_data["name"]
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving user messages: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving user messages")
+
+@app.post("/predict/message", response_model=PredictMessageResponse, tags=["Prediction"])
+async def predict_message_risk(request: PredictMessageRequest):
+    """
+    Predict suicide risk for a specific message with translation support
+    
+    - **message_id**: ID of the message being analyzed
+    - **text**: The text content to analyze (in Spanish or English)
+    
+    Returns prediction with translation info and detailed analysis
+    """
+    try:
+        # Check if model is loaded
+        if model is None or tokenizer is None:
+            raise HTTPException(
+                status_code=503, 
+                detail="Model not available. Please try again later."
+            )
+        
+        if not request.text or not request.text.strip():
+            raise HTTPException(status_code=400, detail="Empty text provided")
+        
+        # Make prediction with translation
+        result = predict_text_with_translation(request.text.strip())
+        
+        # Get detailed analysis (using translated text)
+        analysis = analyze_text_indicators(result["translated_text"])
+        
+        # Log prediction (without sensitive data)
+        logger.info(f"Message prediction made: {result['prediction']} (confidence: {result['confidence']}, risk_level: {result['risk_level']}, translated: {result['was_translated']})")
+        
+        return PredictMessageResponse(
+            message_id=request.message_id,
+            original_text=result["original_text"],
+            translated_text=result["translated_text"],
+            prediction=result["prediction"],
+            confidence=result["confidence"],
+            suicidal_probability=result["suicidal_probability"],
+            non_suicidal_probability=result["non_suicidal_probability"],
+            risk_level=result["risk_level"],
+            analysis=analysis
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in message prediction endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 # Error handlers
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     logger.warning(f"HTTP error {exc.status_code}: {exc.detail}")
-    return {
-        "error": exc.detail,
-        "status_code": exc.status_code
-    }
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.detail,
+            "status_code": exc.status_code
+        }
+    )
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
     logger.error(f"Unexpected error: {str(exc)}")
-    return {
-        "error": "Internal server error",
-        "detail": "An unexpected error occurred"
-    }
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "detail": "An unexpected error occurred"
+        }
+    )
 
 if __name__ == "__main__":
     # Configuration

@@ -83,7 +83,7 @@ def test_api():
             timeout=30
         )
         print(f"Status: {response.status_code}")
-        print(f"Response: {response.json()}")
+        f"Response: {response.json()}"
     except Exception as e:
         print(f"Error: {e}")
     
@@ -111,6 +111,73 @@ def test_api():
     except Exception as e:
         print(f"Error: {e}")
     
+    # Test 7: Get all user messages
+    print("\n7. Testing get all user messages endpoint...")
+    try:
+        response = requests.get(f"{base_url}/users/messages", timeout=30)
+        print(f"Status: {response.status_code}")
+        if response.status_code == 200:
+            result = response.json()
+            print(f"Total messages: {result['total']}")
+            print(f"Users count: {result['users_count']}")
+            print(f"First message preview: {result['messages'][0]['content'][:50]}..." if result['messages'] else "No messages")
+        else:
+            print(f"Response: {response.json()}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+    # Test 8: Test message prediction with translation
+    print("\n8. Testing message prediction with translation...")
+    try:
+        test_data = {
+            "message_id": "test_msg_001",
+            "text": "Me siento muy triste y sin esperanza. A veces pienso que sería mejor no estar aquí."
+        }
+        response = requests.post(
+            f"{base_url}/predict/message",
+            json=test_data,
+            headers={"Content-Type": "application/json"},
+            timeout=60
+        )
+        print(f"Status: {response.status_code}")
+        if response.status_code == 200:
+            result = response.json()
+            print(f"Original text: {result['original_text']}")
+            print(f"Translated text: {result['translated_text']}")
+            print(f"Prediction: {result['prediction']}")
+            print(f"Risk level: {result['risk_level']}")
+            print(f"Confidence: {result['confidence']:.2%}")
+            print(f"Indicators found: {result['analysis']['indicator_count']}")
+        else:
+            print(f"Response: {response.json()}")
+    except Exception as e:
+        print(f"Error: {e}")
+
+    # Test 9: Test with English text
+    print("\n9. Testing message prediction with English text...")
+    try:
+        test_data = {
+            "message_id": "test_msg_002",
+            "text": "I feel hopeless and I don't want to be alive anymore."
+        }
+        response = requests.post(
+            f"{base_url}/predict/message",
+            json=test_data,
+            headers={"Content-Type": "application/json"},
+            timeout=60
+        )
+        print(f"Status: {response.status_code}")
+        if response.status_code == 200:
+            result = response.json()
+            print(f"Was translation needed: {result['original_text'] != result['translated_text']}")
+            print(f"Prediction: {result['prediction']}")
+            print(f"Risk level: {result['risk_level']}")
+            print(f"Confidence: {result['confidence']:.2%}")
+        else:
+            print(f"Response: {response.json()}")
+    except Exception as e:
+        print(f"Error: {e}")
+
     print("\n" + "=" * 50)
     print("✅ API testing completed!")
     print(f"\n📖 Documentation available at: {base_url}/docs")
